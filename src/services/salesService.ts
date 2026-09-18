@@ -49,6 +49,18 @@ export const salesService = {
     return data as Sale[]
   },
 
+  async weeklySales() {
+    const since = new Date()
+    since.setDate(since.getDate() - 6)
+    since.setHours(0, 0, 0, 0)
+    const { data, error } = await supabase
+      .from('sales')
+      .select('total, created_at')
+      .eq('status', 'COMPLETED')
+      .gte('created_at', since.toISOString())
+    if (error) throw error
+    return data as { total: number; created_at: string }[]
+  },
   async dashboardSummary(date?: string) {
     const { data, error } = await supabase.rpc('get_dashboard_summary', date ? { p_date: date } : {})
     if (error) throw error
