@@ -1,19 +1,48 @@
 import { useEffect, useState } from 'react'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { salesService } from '@/services/salesService'
 import { formatTZS } from '@/utils/format'
+import { toZonedTime } from 'date-fns-tz'
 import type { DashboardSummary, Sale } from '@/types'
+
+const TZ = 'Africa/Dar_es_Salaam'
+const DAY_LABELS = ['Jumapili', 'Jumatatu', 'Jumanne', 'Jumatano', 'Alhamisi', 'Ijumaa', 'Jumamosi']
 
 export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [recent, setRecent] = useState<Sale[]>([])
+  const [weekly, setWeekly] = useState<{ day: string; total: number }[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       try {
-        const [s, r] = await Promise.all([salesService.dashboardSummary(), salesService.listRecent(10)])
+        const [s, r, w] = await Promise.all([
+          salesService.dashboardSummary(),
+          salesService.listRecent(10),
+          salesService.weeklySales(),
+        ])
         setSummary(s as DashboardSummary)
         setRecent(r)
+
+        const buckets: Record<string, number> = {}
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date()
+          d.setDate(d.getDate() - i)
+          const zoned = toZonedTime(d, TZ)
+          const key = zoned.toDateString()
+          buckets[key] = 0
+        }
+        w.forEach((sale) => {
+          const zoned = toZonedTime(new Date(sale.created_at), TZ)
+          const key = zoned.toDateString()
+          if (buckets[key] !== undefined) buckets[key] += sale.total
+        })
+        const chartData = Object.keys(buckets).map((key) => {
+          const d = new Date(key)
+          return { day: DAY_LABELS[d.getDay()], total: buckets[key] }
+        })
+        setWeekly(chartData)
       } finally {
         setLoading(false)
       }
@@ -55,6 +84,20 @@ export default function Dashboard() {
       </div>
 
       <div className="rounded-xl border bg-white p-4">
+        <h3 className="mb-3 font-semibold">Mauzo ya Wiki</h3>
+        <div style={{ width: '100%', height: 220 }}>
+          <ResponsiveContainer>
+            <BarChart data={weekly}>
+              <XAxis dataKey="day" fontSize={12} />
+              <YAxis fontSize={12} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+              <Tooltip formatter={(v: number) => formatTZS(v)} />
+              <Bar dataKey="total" fill="#4f46e5" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-white p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="font-semibold">Target ya Leo</h3>
           <span className={`text-sm font-bold ${statusColor}`}>{status}</span>
@@ -75,25 +118,21 @@ export default function Dashboard() {
       </div>
 
       <div className="rounded-xl border bg-white p-4">
-        <h3 className="mb-2 font-semibold">Mauzo ya Karibuni</h3>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="font-semibold">Mauzo ya Karibuni</h3>
+          <a href="/reports" className="text-sm text-blue-600">Tazama Yote →</a>
+        </div>
         {recent.length === 0 ? (
           <p className="text-sm text-slate-400">Hakuna mauzo bado.</p>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="text-left text-slate-500">
-              <tr><th className="py-1">Transaction</th><th>Kiasi</th><th>Malipo</th><th>Muda</th></tr>
-            </thead>
-            <tbody>
-              {recent.map((s) => (
-                <tr key={s.id} className="border-t">
-                  <td className="py-1">{s.transaction_number}</td>
-                  <td>{formatTZS(s.total)}</td>
-                  <td>{s.payment_method}</td>
-                  <td>{new Date(s.created_at).toLocaleTimeString('sw-TZ')}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="space-y-2">
+            {recent.map((s) => (
+              <div key={s.id} className="flex justify-between border-t pt-2 text-sm">
+                <span>{s.transaction_number}</span>
+                <span className="font-semibold">{formatTZS(s.total)}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
